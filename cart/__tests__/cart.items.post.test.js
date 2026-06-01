@@ -1,35 +1,33 @@
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import app from '../src/app.js';
-
-const mockSave = jest.fn();
-
-const CartModelMock = jest.fn().mockImplementation((data) => ({
-  ...data,
-  save: mockSave,
-}));
-
-CartModelMock.findOne = jest.fn();
+import CartModel from '../src/models/cart.model.js';
+import * as stockClient from '../src/services/stock.client.js';
 
 jest.mock('../src/models/cart.model.js', () => ({
   __esModule: true,
-  default: CartModelMock,
+  default: Object.assign(
+    jest.fn().mockImplementation((data) => ({
+      ...data,
+      save: jest.fn(),
+    })),
+    { findOne: jest.fn() }
+  ),
 }));
-
-// Contract-level mock for stock validation/reservation to avoid any product DB usage.
-const mockStockClient = {
-  checkAvailability: jest.fn(),
-  reserveSoftStock: jest.fn(),
-};
 
 jest.mock(
   '../src/services/stock.client.js',
-  () => ({
-    __esModule: true,
-    default: mockStockClient,
-    checkAvailability: mockStockClient.checkAvailability,
-    reserveSoftStock: mockStockClient.reserveSoftStock,
-  }),
+  () => {
+    const checkAvailability = jest.fn();
+    const reserveSoftStock = jest.fn();
+
+    return {
+      __esModule: true,
+      default: { checkAvailability, reserveSoftStock },
+      checkAvailability,
+      reserveSoftStock,
+    };
+  },
   { virtual: true }
 );
 
@@ -51,14 +49,14 @@ describe('POST /cart/items', () => {
   });
 
   it('adds item when product is available and qty is valid', async () => {
-    CartModelMock.findOne.mockResolvedValueOnce({
+    CartModel.findOne.mockResolvedValueOnce({
       userId: '507f1f77bcf86cd799439011',
       items: [],
-      save: mockSave,
+      save: jest.fn(),
     });
 
-    mockStockClient.checkAvailability.mockResolvedValueOnce({ available: true });
-    mockStockClient.reserveSoftStock.mockResolvedValueOnce({ reserved: true });
+    stockClient.checkAvailability.mockResolvedValueOnce({ available: true });
+    stockClient.reserveSoftStock.mockResolvedValueOnce({ reserved: true });
 
     const token = createAuthToken();
 
@@ -103,7 +101,7 @@ describe('POST /cart/items', () => {
   });
 
   it('returns 409 when product is unavailable', async () => {
-    mockStockClient.checkAvailability.mockResolvedValueOnce({ available: false });
+    stockClient.checkAvailability.mockResolvedValueOnce({ available: false });
 
     const token = createAuthToken();
 
@@ -116,17 +114,17 @@ describe('POST /cart/items', () => {
       });
 
     expect(response.status).toBe(409);
-    expect(CartModelMock.findOne).not.toHaveBeenCalled();
+    expect(CartModel.findOne).not.toHaveBeenCalled();
   });
 
   it('does not reserve soft stock when reserveSoftStock is false', async () => {
-    CartModelMock.findOne.mockResolvedValueOnce({
+    CartModel.findOne.mockResolvedValueOnce({
       userId: '507f1f77bcf86cd799439011',
       items: [],
-      save: mockSave,
+      save: jest.fn(),
     });
 
-    mockStockClient.checkAvailability.mockResolvedValueOnce({ available: true });
+    stockClient.checkAvailability.mockResolvedValueOnce({ available: true });
 
     const token = createAuthToken();
 
@@ -140,6 +138,6 @@ describe('POST /cart/items', () => {
       });
 
     expect(response.status).toBe(200);
-    expect(mockStockClient.reserveSoftStock).not.toHaveBeenCalled();
+    expect(stockClient.reserveSoftStock).not.toHaveBeenCalled();
   });
 });
